@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, FormEvent } from "react";
+import { useState, useRef, useEffect, type FormEvent } from "react";
 import "./App.css";
 
 type Engine = "vllm" | "sglang";
