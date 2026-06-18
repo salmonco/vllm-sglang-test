@@ -19,6 +19,34 @@ vLLM·SGLang 두 LLM 추론 엔진을 **실제로 돌려보며 차이를 체감*
   JSON 워크로드에서 드러나며 이번 벤치에선 미측정.
 - **runtime 이미지로 pip 구동 시 함정이 많다** (nvcc/gcc/libcuda 부재) → [트러블슈팅](#트러블슈팅-vastai-pytorch-runtime-이미지--pip-구동-기준) 참고. 공식 이미지 쓰면 대부분 회피.
 
+## 실측 결과 (RTX 3090 24GB, Qwen2.5-7B-AWQ)
+
+vast.ai에서 직접 측정 (2026-06). **대여 비용**: $0.206/hr × 약 70분 = **총 $0.24**.
+
+| 지표 | vLLM | SGLang |
+|---|---|---|
+| TTFT p50 | 45 ms | 122 ms |
+| 지연 p50 | 1.70 s | 4.79 s |
+| decode tok/s | 65.4 | 22.7 |
+| throughput tok/s (동시성 4) | 243 | 83.6 |
+
+정성(동일 프롬프트 4종): 코딩·추론은 양쪽 정답. 한국어 일관성은 이 샘플에서 SGLang이
+약간 안정적(vLLM은 한 답변이 중국어로 새는 글리치) — 모델·샘플링 차이지 엔진 성질 아님.
+
+## 한계
+
+위 수치는 참고치이며 엔진의 우열 근거로 쓸 수 없다.
+
+- **측정 조건이 다름**: vLLM 단독 vs SGLang은 GPU 공유 → throughput 직접 비교 불가.
+- **둘 다 최적화 끈 상태**: CUDA graph 없이 구동 → 각자의 최대 성능이 아님.
+- **워크로드가 SGLang에 불리**: 단발 요청뿐이라 SGLang 핵심인 RadixAttention(접두사
+  재사용)이 작동 안 함. 멀티턴·공통 프롬프트·few-shot·JSON 시나리오는 미측정.
+- **표본·범위 협소**: 4프롬프트 1회 · GPU 1장 · 7B · AWQ만. 멀티 GPU·MoE 등은 결론 불가.
+
+제대로 비교하려면 각 엔진을 단독·공식 이미지·cudagraph 켜고 워크로드별로 측정해야 한다.
+
+## 스택
+
 - **추론 엔진**: vLLM, SGLang (둘 다 OpenAI 호환 API → 백엔드 코드 공유)
 - **모델**: Qwen 2.5 7B Instruct AWQ (4bit)
 - **백엔드**: FastAPI (엔진 라우팅 게이트웨이) · **프론트**: React + Vite SPA
@@ -62,32 +90,6 @@ VITE_API_URL=http://<instance-ip>:8080 npm run dev   # localhost:5173
 | `VLLM_BASE_URL` / `SGLANG_BASE_URL` | backend | `localhost:8000/v1` / `:8001/v1` |
 | `VLLM_GPU_FRAC` / `SGLANG_GPU_FRAC` | compose | `0.9` (동시 실행 시 `0.45`) |
 | `VITE_API_URL` | frontend | `http://localhost:8080` |
-
-## 실측 결과 (RTX 3090 24GB, Qwen2.5-7B-AWQ)
-
-vast.ai에서 직접 측정 (2026-06). **대여 비용**: $0.206/hr × 약 70분 = **총 $0.24**.
-
-| 지표 | vLLM | SGLang |
-|---|---|---|
-| TTFT p50 | 45 ms | 122 ms |
-| 지연 p50 | 1.70 s | 4.79 s |
-| decode tok/s | 65.4 | 22.7 |
-| throughput tok/s (동시성 4) | 243 | 83.6 |
-
-정성(동일 프롬프트 4종): 코딩·추론은 양쪽 정답. 한국어 일관성은 이 샘플에서 SGLang이
-약간 안정적(vLLM은 한 답변이 중국어로 새는 글리치) — 모델·샘플링 차이지 엔진 성질 아님.
-
-## 한계
-
-위 수치는 참고치이며 엔진의 우열 근거로 쓸 수 없다.
-
-- **측정 조건이 다름**: vLLM 단독 vs SGLang은 GPU 공유 → throughput 직접 비교 불가.
-- **둘 다 최적화 끈 상태**: CUDA graph 없이 구동 → 각자의 최대 성능이 아님.
-- **워크로드가 SGLang에 불리**: 단발 요청뿐이라 SGLang 핵심인 RadixAttention(접두사
-  재사용)이 작동 안 함. 멀티턴·공통 프롬프트·few-shot·JSON 시나리오는 미측정.
-- **표본·범위 협소**: 4프롬프트 1회 · GPU 1장 · 7B · AWQ만. 멀티 GPU·MoE 등은 결론 불가.
-
-제대로 비교하려면 각 엔진을 단독·공식 이미지·cudagraph 켜고 워크로드별로 측정해야 한다.
 
 ## 트러블슈팅 (vast.ai `pytorch-runtime` 이미지 + pip 구동 기준)
 
