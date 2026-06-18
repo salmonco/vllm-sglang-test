@@ -1,0 +1,73 @@
+services:
+  # 추론 엔진 1: vLLM (OpenAI 호환, 컨테이너 내부 8000 → 호스트 8000)
+  vllm:
+    image: vllm/vllm-openai:latest
+    profiles: ["both", "vllm"]
+    command:
+      - --model
+      - ${MODEL_NAME:-Qwen/Qwen2.5-7B-Instruct-AWQ}
+      - --quantization
+      - awq
+      - --max-model-len
+      - "4096"
+      - --gpu-memory-utilization
+      - "${VLLM_GPU_FRAC:-0.9}"
+    ports:
+      - "8000:8000"
+    ipc: host
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # 추론 엔진 2: SGLang (OpenAI 호환, 컨테이너 내부 8000 → 호스트 8001)
+  sglang:
+    image: lmsysorg/sglang:latest
+    profiles: ["both", "sglang"]
+    command:
+      - python3
+      - -m
+      - sglang.launch_server
+      - --model-path
+      - ${MODEL_NAME:-Qwen/Qwen2.5-7B-Instruct-AWQ}
+      - --quantization
+      - awq
+      - --context-length
+      - "4096"
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --mem-fraction-static
+      - "${SGLANG_GPU_FRAC:-0.9}"
+    ports:
+      - "8001:8000"
+    ipc: host
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # 두 엔진에 라우팅하는 FastAPI 게이트웨이. 어떤 profile에서도 항상 실행.
+  backend:
+    build: ./backend
+    profiles: ["both", "vllm", "sglang"]
+    ports:
+      - "8080:8080"
+    environment:
+      - VLLM_BASE_URL=http://vllm:8000/v1
+      - SGLANG_BASE_URL=http://sglang:8000/v1
+      - MODEL_NAME=${MODEL_NAME:-Qwen/Qwen2.5-7B-Instruct-AWQ}
+
+volumes:
+  huggingface-cache:
